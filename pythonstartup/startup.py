@@ -357,6 +357,12 @@ def lnh(src, dst):
     """
     os.link(src, dst)
 
+def pwd():
+    """Print current working directory path.
+    Usage:  >>> pwd()
+    """
+    print os.getcwd()
+
 
 def cd(directory=-1):
     """Change directory. Environment variables are expanded.
@@ -624,7 +630,9 @@ def findcol(df, word, ignore=True):
         cols_temp = [x.lower() for x in cols]
         word=word.lower()
     return [cols[i] for i,x in enumerate(cols_temp) if word in x]
-
+findcols = findcol
+find_col = findcol
+find_cols = findcol
 
 def _set_digit(digit):
     pd.set_option('display.max_column', None)
@@ -731,6 +739,70 @@ print('=' * 70)
 print('User: Jiayuan Chen (jiayuanchen@outlook.com)')
 print('=' * 70)
 
+def plot(df, y, x, y2=None, plot_type='line', title=None):
+    """
+    Plot y over x using Plotly with optional secondary y-axis.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Data source.
+    y : str
+        Column name for the primary y-axis.
+    x : str
+        Column name for the x-axis.
+    y2 : str, optional
+        Column name for the secondary y-axis (default is None).
+    plot_type : str, optional
+        Type of plot ('line', 'scatter', or 'bar'), default is 'line'.
+    title : str, optional
+        Title of the plot.
+
+    Returns
+    -------
+    fig : plotly.graph_objects.Figure
+        The configured Plotly figure.
+    """
+
+    # Choose trace constructor based on type
+    def make_trace(y_col, name, yaxis='y', color=None):
+        if plot_type == 'line':
+            return go.Scatter(x=df[x], y=df[y_col], name=name, mode='lines', yaxis=yaxis)
+        elif plot_type == 'scatter':
+            return go.Scatter(x=df[x], y=df[y_col], name=name, mode='markers', yaxis=yaxis)
+        elif plot_type == 'bar':
+            return go.Bar(x=df[x], y=df[y_col], name=name, yaxis=yaxis)
+        else:
+            raise ValueError(f"Unsupported plot_type '{plot_type}'. Choose from ['line', 'scatter', 'bar'].")
+
+    # Create figure and add primary trace
+    fig = go.Figure()
+    fig.add_trace(make_trace(y, name=y, yaxis='y'))
+
+    # Add secondary y-axis if provided
+    if y2 is not None:
+        fig.add_trace(make_trace(y2, name=y2, yaxis='y2'))
+        fig.update_layout(
+            yaxis2=dict(
+                title=y2,
+                overlaying='y',
+                side='right',
+                showgrid=False
+            )
+        )
+
+    # Layout and formatting
+    fig.update_layout(
+        title=title or f"{y} vs {x}" + (f" with {y2}" if y2 else ""),
+        xaxis_title=x,
+        yaxis_title=y,
+        legend=dict(x=0.01, y=0.99, borderwidth=1),
+        template="plotly_white",
+        hovermode='x unified',
+        margin=dict(l=80, r=80, t=60, b=60)
+    )
+    
+    fig.show()
 
 
 #
