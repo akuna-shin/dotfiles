@@ -1,736 +1,564 @@
 """
-My Python startup file, carefully gathered from different sources (see below)
-Get code from Github::
-    git clone https://github.com/jezdez/python-startup.git ~/.python
-Put this in your shell profile::
-    export PYTHONSTARTUP=$HOME/.python/startup.py
-In case you haven't saved these files in $HOME/.python make sure to set
-PYTHONUSERDIR approppriately, too::
-    export PYTHONUSERDIR=/path/to/dir
+Python startup file — loaded via PYTHONSTARTUP environment variable.
+
+Setup::
+    export PYTHONSTARTUP=$HOME/dotfiles/pythonstartup/startup.py
 """
-# python-startup.py
-# Author: Nathan Gray, based on interactive.py by Robin Friedrich and an
-#           evil innate desire to customize things.
-# E-Mail: n8gray@caltech.edu
-#
-# Version: 0.6
 
-# These modules are always nice to have in the namespace
-
-############################################################################
-# Below this is Robin Friedrich's interactive.py with some edits to decrea7se
-# namespace pollution and change the help functionality
-# NG
-#
-# Also enhanced 'which' to return filename/lineno
-# Patch from Stephan Fiedler to allow multiple args to ls variants
-# NG 10/21/01  --  Corrected a bug in _glob
-#
-########################### interactive.py ###########################
-#  """Functions for doing shellish things in Python interactive mode.
-#
-#     Meant to be imported at startup via environment:
-#       setenv PYTHONSTARTUP $HOME/easy.py
-#       or
-#       export PYTHONSTARTUP=$HOME/easy.py
-#
-#     - Robin Friedrich
-#  """
-
-
-import functools
-import cProfile, pstats, io
+import cProfile
 import glob
+import importlib
+import inspect
+import io
 import os
+import pickle
+import pstats
 import re
 import shutil
 import subprocess
 import sys
-import time
-import types
+from collections import defaultdict
+from datetime import datetime
+from functools import wraps
 from itertools import islice
 from pprint import pprint
-import pickle
 
 import numpy as np
 import pandas as pd
-from functools import wraps
-from datetime import datetime
 
-# environment settings:
-#pd.set_option('display.max_column', None)
-#pd.set_option('display.max_rows', 100)
-#pd.set_option('display.max_colwidth', 1000)
-#pd.set_option('display.width', 1000)
-#pd.set_option('display.float_format', lambda x: '%.2f' % x)
 
-def profile(fnc):
-    """A decorator that uses cProfile to profile a function"""
+# ---------------------------------------------------------------------------
+# Decorators
+# ---------------------------------------------------------------------------
 
+def profile(func):
+    """Decorator that profiles a function with cProfile."""
+
+    @wraps(func)
     def inner(*args, **kwargs):
         pr = cProfile.Profile()
         pr.enable()
-        retval = fnc(*args, **kwargs)
+        retval = func(*args, **kwargs)
         pr.disable()
         s = io.StringIO()
-        sortby = 'cumulative'
-        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps = pstats.Stats(pr, stream=s).sort_stats("cumulative")
         ps.print_stats()
         print(s.getvalue())
         return retval
 
     return inner
 
-try:
-    from pydoc import help
-except ImportError:
-    def help(*objects):
-        """Print doc strings for object(s).
-        Usage:  >>> help(object, [obj2, objN])  (brackets mean [optional] argument)
-        """
-        if len(objects) == 0:
-            help(help)
-            return
-        for obj in objects:
-            try:
-                print('****', obj.__name__, '****')
-                print(obj.__doc__)
-            except AttributeError:
-                print(obj, 'has no __doc__ attribute')
-                print
 
-try:
-    from collections import defaultdict
-except ImportError:
-    pass
+def timer(func):
+    """Decorator that prints wall-clock execution time."""
 
-# home = os.path.expandvars('$HOME')
-# user_dir = os.path.join(home, os.environ.get("PYTHONUSERDIR", ".python"))
-# sys.path.append(user_dir)
+    @wraps(func)
+    def wrap(*args, **kwargs):
+        ts = datetime.now()
+        result = func(*args, **kwargs)
+        te = datetime.now()
+        print(f"Function:{func.__name__} took: {te - ts}")
+        return result
 
-##### Some settings you may want to change #####
-# Define the editor used by the edit() function. Try to use the editor
-# defined in the Unix environment, or default to vi if not set.
-# (patch due to Stephan Fiedler)
-#
-# %(lineno)s gets replaced by the line number.  Ditto %(fname)s the filename
-EDITOR = os.environ.get('EDITOR', 'vim')
-editorbase = EDITOR.split()[0]
-if editorbase in ['nedit', 'nc', 'ncl', 'emacs', 'emacsclient', 'xemacs']:
-    # We know these editors supoprt a linenumber argument
-    EDITOR = EDITOR + ' +%(lineno)s %(fname)s &'
-elif editorbase in ['vi', 'vim', 'jed']:
-    # Don't want to run vi in the background!
-    # If your editor requires a terminal (e.g. joe) use this as a template
-    EDITOR = 'xterm -e ' + EDITOR + ' +%(lineno)s %(fname)s &'
-else:
-    # Guess that the editor only supports the filename
-    EDITOR = EDITOR + ' %(fname)s &'
-del editorbase
-
-# The place to store your command history between sessions
-# histfile = os.path.join(user_dir, "history")
-
-# Functions automatically added to the builtins namespace so that you can
-# use them in the debugger and other unusual environments
-autobuiltins = ['edit', 'which', 'ls', 'cd', 'mv', 'cp', 'rm', 'help', 'rmdir',
-                'ln', 'pwd', 'pushd', 'popd', 'env', 'mkdir']
-
-# LazyPython only works for Python versions 2.1 and above
-# try:
-#     # Try to use LazyPython
-#     from LazyPython import LazyPython
-#
-#     sys.excepthook = LazyPython()
-# except ImportError:
-#     pass
-#
-# try:
-#      Try to set up command history completion/saving/reloading
-#     import readline, atexit, rlcompleter
-#
-#     readline.parse_and_bind('tab: complete')
-#     try:
-#         readline.read_history_file(histfile)
-#     except IOError:
-#         pass  # It doesn't exist yet.
-#
-#
-#     def savehist():
-#         try:
-#             global histfile
-#             readline.write_history_file(histfile)
-#         except:
-#             print('Unable to save Python command history')
-#
-#
-#     atexit.register(savehist)
-#     del atexit
-# except ImportError:
-#     pass
+    return wrap
 
 
-# Make an "edit" command that sends you to the right file *and line number*
-# to edit a module, class, method, or function!
-# Note that this relies on my enhanced version of which().
-# def edit(object, editor=EDITOR):
-#     """Edit the source file from which a module, class, method, or function
-#     was imported.
-#     Usage:  >>> edit(mysteryObject)
-#     """
-#
-#     if type(object) is type(""):
-#         fname = object;
-#         lineno = 1
-#         print(editor % locals())
-#         subprocess.Popen(editor % locals(), shell=True)
-#         return
-#
-#     ret = which(object)
-#     if not ret:
-#         print("Can't edit that!")
-#         return
-#     fname, lineno = ret
-#     if fname[-4:] == '.pyc' or fname[-4:] == '.pyo':
-#         fname = fname[:-1]
-#     print(editor % locals())
-#     subprocess.Popen(editor % locals(), shell=True)
+# ---------------------------------------------------------------------------
+# Shell-like utilities
+# ---------------------------------------------------------------------------
 
-def edit(object):
-    """Edit the source file from which a module, class, method, or function
-    was imported.
-    Usage:  >>> edit(mysteryObject)
+EDITOR = os.environ.get("EDITOR", "vim")
+
+
+def edit(target):
+    """Open a file in the default editor.
+    Usage:  >>> edit('myfile.py')
     """
-    subprocess.Popen(f'subl + {object}', shell=True)
+    subprocess.Popen(f"{EDITOR} {target}", shell=True)
 
 
-def openf(directory):
-    os.startfile(directory)
-
-
-def reimport(mod, locals=None):
-    if isinstance(mod, str):
-        modname = mod
+def openf(path):
+    """Open a file or directory with the system default handler."""
+    if sys.platform == "linux":
+        subprocess.Popen(["xdg-open", path])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
     else:
-        modname = mod.__name__
-    sys.modules[modname] = None
-    del sys.modules[modname]
-    new_mod = __import__(modname)
-    if locals is not None:
-        locals[modname] = new_mod
-    return new_mod
+        os.startfile(path)
+
+
+def reimport(mod):
+    """Reload a module by name or reference. Prefer importlib.reload() directly."""
+    if isinstance(mod, str):
+        mod = sys.modules[mod]
+    return importlib.reload(mod)
 
 
 def _glob(filenames):
-    """Expand a filename or sequence of filenames with possible
-    shell metacharacters to a list of valid filenames.
-    Ex:  _glob(('*.py*',)) == ['able.py','baker.py','charlie.py']
-    """
-    if type(filenames) is str:
-        return glob.glob(filenames)
-    flist = []
+    """Expand filename(s) with possible shell metacharacters."""
+    if isinstance(filenames, str):
+        return glob.glob(filenames) or [filenames]
+    result = []
     for filename in filenames:
         globbed = glob.glob(filename)
-        if globbed:
-            for file in globbed:
-                flist.append(file)
-        else:
-            flist.append(filename)
-    return flist
+        result.extend(globbed if globbed else [filename])
+    return result
 
 
-def _expandpath(d):
-    """Convert a relative path to an absolute path.
+def ls(path="."):
+    """List directory contents.
+    Usage:  >>> ls()  or  >>> ls('/some/path')
     """
-    return os.path.join(os.getcwd(), os.path.expandvars(d))
+    return os.listdir(path)
 
 
-lsdir = os.listdir
 mkdir = os.mkdir
 
 
 def rm(*args):
-    """Delete a file or files.
-    Usage:  >>> rm('file.c' [, 'file.h'])  (brackets mean [optional] argument)
-    Alias: delete
+    """Delete file(s).
+    Usage:  >>> rm('file.c', 'file.h')
     """
-    filenames = _glob(args)
-    for item in filenames:
+    for item in _glob(args):
         try:
             os.remove(item)
-        except OSError as detail:
-            print(f'{detail} : {item}')
+        except OSError as err:
+            print(f"{err}: {item}")
 
 
 delete = rm
 
 
 def rmdir(directory):
-    """Remove a directory.
-    Usage:  >>> rmdir('dirname')
-    If the directory isn't empty, can recursively delete all sub-files.
-    """
+    """Remove a directory. Prompts if non-empty."""
     try:
         os.rmdir(directory)
-    except os.error:
-        # directory wasn't empty
-        answer = raw_input(directory + " isn't empty. Delete anyway?[n] ")
-        if answer and answer[0] in 'Yy':
-            subprocess.Popen('rm -rf %s' % directory, shell=True)
-            print(directory + ' Deleted.')
+    except OSError:
+        answer = input(f"{directory} isn't empty. Delete anyway? [n] ")
+        if answer and answer[0] in "Yy":
+            shutil.rmtree(directory)
+            print(f"{directory} deleted.")
         else:
-            print(directory + ' Unharmed.')
+            print(f"{directory} unharmed.")
 
 
 def mv(*args):
-    """Move files within a filesystem.
-    Usage:  >>> mv('file1', ['fileN',] 'fileordir')
-    If two arguments - both must be files
-    If more arguments - last argument must be a directory
+    """Move/rename files.
+    Usage:  >>> mv('src', 'dst')  or  >>> mv('a', 'b', 'dir/')
     """
     filenames = _glob(args)
-    nfilenames = len(filenames)
-    if nfilenames < 2:
-        print('Need at least two arguments')
-    elif nfilenames == 2:
-        try:
-            os.rename(filenames[0], filenames[1])
-        except OSError as detail:
-            print("%s: %s" % (detail[1], filenames[1]))
-    else:
-        for filename in filenames[:-1]:
-            try:
-                dest = filenames[-1] + '/' + filename
-                if not os.path.isdir(filenames[-1]):
-                    print('Last argument needs to be a directory')
-                    return
-                os.rename(filename, dest)
-            except OSError as detail:
-                print("%s: %s" % (detail[1], filename))
+    if len(filenames) < 2:
+        print("Need at least two arguments")
+        return
+    if len(filenames) == 2:
+        os.rename(filenames[0], filenames[1])
+        return
+    dest_dir = filenames[-1]
+    if not os.path.isdir(dest_dir):
+        print("Last argument needs to be a directory")
+        return
+    for filename in filenames[:-1]:
+        os.rename(filename, os.path.join(dest_dir, filename))
 
 
 def cp(*args):
-    """Copy files along with their mode bits.
-    Usage:  >>> cp('file1', ['fileN',] 'fileordir')
-    If two arguments - both must be files
-    If more arguments - last argument must be a directory
+    """Copy file(s).
+    Usage:  >>> cp('src', 'dst')  or  >>> cp('a', 'b', 'dir/')
     """
     filenames = _glob(args)
-    nfilenames = len(filenames)
-    if nfilenames < 2:
-        print('Need at least two arguments')
-    elif nfilenames == 2:
-        try:
-            shutil.copy(filenames[0], filenames[1])
-        except OSError as detail:
-            print("%s: %s" % (detail[1], filenames[1]))
-    else:
-        for filename in filenames[:-1]:
-            try:
-                dest = filenames[-1] + '/' + filename
-                if not os.path.isdir(filenames[-1]):
-                    print('Last argument needs to be a directory')
-                    return
-                shutil.copy(filename, dest)
-            except OSError as detail:
-                print("%s: %s" % (detail[1], filename))
+    if len(filenames) < 2:
+        print("Need at least two arguments")
+        return
+    if len(filenames) == 2:
+        shutil.copy(filenames[0], filenames[1])
+        return
+    dest_dir = filenames[-1]
+    if not os.path.isdir(dest_dir):
+        print("Last argument needs to be a directory")
+        return
+    for filename in filenames[:-1]:
+        shutil.copy(filename, os.path.join(dest_dir, filename))
 
 
 def cpr(src, dst):
-    """Recursively copy a directory tree to a new location
-    Usage:  >>> cpr('directory0', 'newdirectory')
-    Symbolic links are copied as links not source files.
+    """Recursively copy a directory tree. Symlinks are copied as links."""
+    shutil.copytree(src, dst, symlinks=True)
+
+
+def rsync(src, dst, *, verbose=True, archive=True, delete=False, dry_run=False):
+    """Synchronize files using rsync.
+    Usage:  >>> rsync('/path/to/source/', '/path/to/destination/')
     """
-    shutil.copytree(src, dst)
+    cmd = ["rsync", "-r"]
+    if archive:
+        cmd.append("-a")
+    if verbose:
+        cmd.append("-v")
+    if delete:
+        cmd.append("--delete")
+    if dry_run:
+        cmd.append("--dry-run")
+    cmd.extend([src, dst])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        if verbose:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        return result.returncode
+    except subprocess.CalledProcessError as err:
+        print(f"rsync failed with error code {err.returncode}")
+        print(err.stderr)
+        return err.returncode
+    except FileNotFoundError:
+        print("rsync not found. Please ensure rsync is installed.")
+        return -1
 
 
 def ln(src, dst):
-    """Create a symbolic link.
-    Usage:  >>> ln('existingfile', 'newlink')
-    """
+    """Create a symbolic link."""
     os.symlink(src, dst)
 
 
 def lnh(src, dst):
-    """Create a hard file system link.
-    Usage:  >>> ln('existingfile', 'newlink')
-    """
+    """Create a hard link."""
     os.link(src, dst)
 
 
+def pwd():
+    """Print and return current working directory."""
+    cwd = os.getcwd()
+    print(cwd)
+    return cwd
+
+
+cdlist: list[str] = [os.path.expanduser("~")]
+
+
 def cd(directory=-1):
-    """Change directory. Environment variables are expanded.
+    """Change directory.
     Usage:
-    cd('rel/$work/dir') change to a directory relative to your own
-    cd('/abs/path')     change to an absolute directory path
-    cd()                list directories you've been in
-    cd(int)             integer from cd() listing, jump to that directory
+        cd('/abs/path')     change to absolute path
+        cd('rel/path')      change to relative path
+        cd()                list visited directories
+        cd(int)             jump to directory by index from cd()
     """
     global cdlist
-    if type(directory) is int:
-        if directory in range(len(cdlist)):
+    if isinstance(directory, int):
+        if 0 <= directory < len(cdlist):
             cd(cdlist[directory])
-            return
         else:
-            pprint(cdlist)
-            return
+            pprint(list(enumerate(cdlist)))
+        return
     directory = _glob(directory)[0]
     if not os.path.isdir(directory):
-        print(directory + ' is not a directory')
+        print(f"{directory} is not a directory")
         return
-    directory = _expandpath(directory)
+    directory = os.path.abspath(os.path.expandvars(directory))
     if directory not in cdlist:
         cdlist.append(directory)
     os.chdir(directory)
 
 
 def env():
-    """List environment variables.
-    Usage:  >>> env()
-    """
-    # unfortunately environ is an instance not a dictionary
-    pprint(os.environ)
+    """List environment variables."""
+    pprint(dict(os.environ))
 
 
-interactive_dir_stack = []
+interactive_dir_stack: list[str] = []
 
 
 def pushd(directory):
-    """Place the current dir on stack and change directory.
-    Usage:  >>> pushd(['dirname'])   (brackets mean [optional] argument)
-                pushd()  goes home.
-    """
-    global interactive_dir_stack
+    """Push current directory onto stack and cd to a new one."""
     interactive_dir_stack.append(os.getcwd())
     cd(directory)
 
 
 def popd():
-    """Change to directory popped off the top of the stack.
-    Usage:  >>> popd()
-    """
-    global interactive_dir_stack
-    try:
-        cd(interactive_dir_stack[-1])
-        print(interactive_dir_stack[-1])
-        del interactive_dir_stack[-1]
-    except IndexError:
-        print('Stack is empty')
+    """Pop directory from stack and cd to it."""
+    if not interactive_dir_stack:
+        print("Stack is empty")
+        return
+    target = interactive_dir_stack.pop()
+    cd(target)
+    print(target)
 
 
 def syspath():
-    """Print the Python path.
-    Usage:  >>> syspath()
-    """
-    import sys
+    """Print sys.path."""
     pprint(sys.path)
 
 
-def which(object):
-    """Print the source file from which a module, class, function, or method
-    was imported.
-
-    Usage:    >>> which(mysteryObject)
-    Returns:  Tuple with (file_name, line_number) of source file, or None if
-              no source file exists
-    Alias:    whence
+def which(obj):
+    """Print and return the source file + line number of a module, class, function, or method.
+    Usage:  >>> which(some_object)
     """
-    object_type = type(object)
-    if object_type is types.ModuleType:
-        if hasattr(object, '__file__'):
-            print('Module from', object.__file__)
-            return (object.__file__, 1)
-        else:
-            print('Built-in module.')
-    elif object_type is types.ClassType:
-        if object.__module__ == '__main__':
-            print('Built-in class or class loaded from $PYTHONSTARTUP')
-        else:
-            print('Class', object.__name__, 'from', \
-                  sys.modules[object.__module__].__file__)
-            # Send you to the first line of the __init__ method
-            return (sys.modules[object.__module__].__file__,
-                    object.__init__.im_func.func_code.co_firstlineno)
-    elif object_type in (types.BuiltinFunctionType, types.BuiltinMethodType):
-        print("Built-in or extension function/method.")
-    elif object_type is types.FunctionType:
-        print('Function from', object.func_code.co_filename)
-        return (object.func_code.co_filename, object.func_code.co_firstlineno)
-    elif object_type is types.MethodType:
-        print('Method of class', object.im_class.__name__, 'from', )
-        fname = sys.modules[object.im_class.__module__].__file__
-        print(fname)
-        return (fname, object.im_func.func_code.co_firstlineno)
-    else:
-        print("argument is not a module or function.")
-    return None
+    try:
+        source_file = inspect.getfile(obj)
+    except (TypeError, OSError):
+        print("Cannot determine source file (built-in or C extension).")
+        return None
+
+    try:
+        _, lineno = inspect.getsourcelines(obj)
+    except (OSError, TypeError):
+        lineno = 1
+
+    print(f"{type(obj).__name__} from {source_file}:{lineno}")
+    return (source_file, lineno)
 
 
 whence = which
 
 
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-#######################################################################################################
-def parse_simple_date(date, **kwargs):
-    return datetime.strptime(str(date), '%Y-%m-%d')
+# ---------------------------------------------------------------------------
+# Date parsing utilities
+# ---------------------------------------------------------------------------
+
+def parse_simple_date(date_str):
+    """Parse 'YYYY-MM-DD' string to datetime."""
+    return datetime.strptime(str(date_str), "%Y-%m-%d")
 
 
-def __ParseUTC__(d):
-    return datetime.strptime(str(d)[:-4], '%Y-%m-%dT%H:%M:%S.%f')
+def parse_utc(date_str):
+    """Parse 'YYYY-MM-DDTHH:MM:SS.ffffff+00' to datetime (drops timezone suffix)."""
+    return datetime.strptime(str(date_str)[:-4], "%Y-%m-%dT%H:%M:%S.%f")
 
 
-def fast_parse(df, col, parser=__ParseUTC__, name=None):
-    '''
-    '''
-    dt = pd.DataFrame(df[col].unique())
-    dt.columns = [col + '_tmp']
-    dt[col] = dt[col + '_tmp'].apply(parser)
-    date_dict = dt.set_index(col + '_tmp').to_dict()
-    if name == None:
-        df[col] = df[col].map(date_dict[col])
-    else:
-        df[name] = df[col].map(date_dict[col])
+def fast_parse(df, col, parser=parse_utc, name=None):
+    """Efficiently parse a date column by only parsing unique values once."""
+    uniques = pd.DataFrame(df[col].unique(), columns=["_key"])
+    uniques["_parsed"] = uniques["_key"].apply(parser)
+    mapping = dict(zip(uniques["_key"], uniques["_parsed"]))
+    target_col = name or col
+    df[target_col] = df[col].map(mapping)
     return df
 
+
+# ---------------------------------------------------------------------------
+# File I/O shortcuts
+# ---------------------------------------------------------------------------
+
 def rcsv(path, **kwargs):
+    """Shortcut for pd.read_csv()."""
     return pd.read_csv(path, **kwargs)
 
 
 def rexcel(path, **kwargs):
+    """Shortcut for pd.read_excel()."""
     return pd.read_excel(path, **kwargs)
 
 
-def timer(f):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = datetime.now()
-        result = f(*args, **kw)
-        te = datetime.now()
-        print(f'Function:{f.__name__} with args: took: {te - ts} seconds')
-        return result
-
-    return wrap
-
-
-def folder_space(_workDir_: str, subfolder_name: str, local_folder: bool = True):
-    '''
-    :param name: folder name
-    :return: folder path
-    '''
-
-    if _workDir_ == '':
-        CurrDir = os.getcwd().replace('\\', '/') + '/'
-        workDir = CurrDir if local_folder else CurrDir + 'New folder/'
-    else:
-        workDir = _workDir_ if _workDir_[-1] == '/' else _workDir_ + '/'
-    #     filename = workDir + subfolder_name + '/'
-    # else:
-    #     filename = filename_temp
-
-    filename = workDir + subfolder_name + '/'
-
-    try:
-        os.makedirs(filename)
-        # print("Directory " , dirName ,  " Created ")
-    except FileExistsError:
-        # print("Directory " , name ,  " already exists")
-        pass
-    return filename
-
-
-def getd(device='HPC'):
-    if device == 'HPC' or device == 0:
-        return 'C:/Users/PC-user/Desktop/'
-    elif device == 'UNSW' or device == 1:
-        return 'C:/Users/z3446244/Desktop/'
-    elif device == 'linux' or device == 2:
-        return '/home/shinc/'
-    elif device == 'lib' or device == 3:
-        return 'D:/Anaconda/mylib/'
-    elif device == 'linuxd' or device == 4:
-        return '/run/media/shinc/8C36A64636A6315E/'
-    elif device == 'pych' or device == 5:
-        return '/run/media/shinc/8C36A64636A6315E/PycharmProjects/'
-    else:
-        print('Please enter HPC/UNSW/MAC')
-        return os.getcwd()
-
-device = sys.platform
-workDir = getd(device)
-cdlist = [getd(i) for i in range(0, 6)]
+def rpq(path, **kwargs):
+    """Shortcut for pd.read_parquet()."""
+    return pd.read_parquet(path, **kwargs)
 
 
 def read(fname, nlines=10):
-    '''read any file for first n line'''
-    try:
-        with open(fname) as f:
-            for line in islice(f, nlines):
-                print(line)
-    except:
-        with open(fname, encoding="utf8") as f:
-            for line in islice(f, nlines):
-                print(line)
+    """Print the first n lines of a file."""
+    with open(fname, encoding="utf-8", errors="replace") as f:
+        for line in islice(f, nlines):
+            print(line, end="")
 
 
-def findint(s):
-    '''
-    find integer from strings
-    :param s:
-    :return:
-    '''
-    return int(re.search(r'\d+', s).group())
-
-def savepickle(var, filename):
-    with open(filename, 'wb') as f:
-        pickle.dump(var, f)
+def savepickle(obj, filename):
+    """Pickle an object to a file."""
+    with open(filename, "wb") as f:
+        pickle.dump(obj, f)
 
 
 def loadpickle(filename):
-    with open(filename, 'rb') as f:
-        temp = pickle.load(f)
-    return temp
+    """Load a pickled object from a file."""
+    with open(filename, "rb") as f:
+        return pickle.load(f)
 
+
+# ---------------------------------------------------------------------------
+# String / regex utilities
+# ---------------------------------------------------------------------------
+
+def findint(s):
+    """Extract the first integer from a string."""
+    match = re.search(r"\d+", s)
+    if match is None:
+        raise ValueError(f"No integer found in {s!r}")
+    return int(match.group())
+
+
+# ---------------------------------------------------------------------------
+# DataFrame utilities
+# ---------------------------------------------------------------------------
 
 def qprint(df, first_n=5):
-    print([{c: df[c].unique()[0:first_n]} for c in df.columns.tolist()])
+    """Quick-print the first n unique values per column."""
+    for col in df.columns:
+        print(f"{col}: {df[col].unique()[:first_n]}")
+
+
+def findcol(df, word, ignore_case=True):
+    """Find columns in a DataFrame whose names contain `word`.
+    Usage:  >>> findcol(df, 'price')
+    """
+    cols = df.columns.tolist()
+    if ignore_case:
+        return [c for c in cols if word.lower() in c.lower()]
+    return [c for c in cols if word in c]
+
+
+findcols = find_col = find_cols = findcol
 
 
 def marketshare(df, col):
-    '''
-    calculate market share based on col
-    '''
-    total_sum = df[col].sum()
-    df[col + '_mrkshr'] = df[col] / total_sum * 100
+    """Add a market-share (%) column based on `col`."""
+    df[f"{col}_mrkshr"] = df[col] / df[col].sum() * 100
     return df
 
 
 def tw_metrics(df, col, timeindex):
-    temp = df.groupby(timeindex)[col].sum().reset_index()
-    temp = temp.sort_values(by=timeindex)
-    temp['time_d'] = (temp[timeindex].diff(1)).dt.total_seconds()
-    temp[col + '_tw'] = temp[col] * temp['time_d']
-    tw_col = temp[col + '_tw'].sum() / temp.dropna(subset=[col])['time_d'].sum()
-    return tw_col
+    """Compute a time-weighted metric for `col` grouped by `timeindex`."""
+    temp = df.groupby(timeindex)[col].sum().reset_index().sort_values(by=timeindex)
+    temp["time_d"] = temp[timeindex].diff().dt.total_seconds()
+    temp[f"{col}_tw"] = temp[col] * temp["time_d"]
+    return temp[f"{col}_tw"].sum() / temp.dropna(subset=[col])["time_d"].sum()
 
 
-
-def findcol(df, word, ignore=True):
-    cols=df.columns.tolist()
-    if ignore:
-        cols_temp = [x.lower() for x in cols]
-        word=word.lower()
-    return [cols[i] for i,x in enumerate(cols_temp) if word in x]
-
-
-def _set_digit(digit):
-    pd.set_option('display.max_column', None)
-    pd.set_option('display.max_colwidth', 1000)
-    pd.set_option('display.float_format', lambda x: '%.3f' % x)
+def winsorize_series(s, limits=(0.01, 0.01)):
+    """Winsorize a Series by clipping at the given quantile limits."""
+    return s.clip(
+        lower=s.quantile(limits[0]),
+        upper=s.quantile(1 - limits[1]),
+    )
 
 
-
-def winsorize_with_pandas(s, limits):
-    """
-    s : pd.Series
-        Series to winsorize
-    limits : tuple of float
-        Tuple of the percentages to cut on each side of the array,
-        with respect to the number of unmasked data, as floats between 0. and 1
-    """
-    return s.clip(lower=s.quantile(limits[0], interpolation='lower'),
-                  upper=s.quantile(1 - limits[1], interpolation='higher'))
-
-
-def mwinsorize(df, cols, limits=[0.01, 0.01], return_raw=False):
-    '''
-    winsorize using pandas
-    :param df:
-    :param col:
-    :param limits:
-    :return:
-    '''
-
-    if return_raw:
-        raw = df.copy()
-
+def mwinsorize(df, cols, limits=(0.01, 0.01), return_raw=False):
+    """Winsorize multiple columns in-place. Optionally return a pre-winsorize copy."""
+    raw = df.copy() if return_raw else None
     for col in cols:
-        df[col] = winsorize_with_pandas(df[col], limits)
-
-    if return_raw:
-        return df, raw
-    else:
-        return df
+        df[col] = winsorize_series(df[col], limits)
+    return (df, raw) if return_raw else df
 
 
-def pdset(opt = 'default', value = -1):
-    '''
-    Quick way to set pandas option
-    :param opt: pandas option
-    'mc': pd.set_option('display.max_column', value)
-    'mr': pd.set_option('display.max_rows', value)
-    'cw': pd.set_option('display.max_colwidth', value)
-    'w': pd.set_option('display.width', value)
-    'd': pd.set_option('display.float_format', lambda x: f'%.{value}f' % x)
-    :param value: optioin value
-    '''
+# ---------------------------------------------------------------------------
+# Pandas display settings
+# ---------------------------------------------------------------------------
+
+PDSET_OPTIONS = {
+    "mc": "display.max_columns",
+    "mr": "display.max_rows",
+    "cw": "display.max_colwidth",
+    "w": "display.width",
+}
+
+PDSET_PRESETS = {
+    "default": {"mc": 15, "mr": 50, "cw": 100, "w": 300, "d": 4},
+    "l": {"mc": 150, "mr": 500, "cw": 500, "w": 1000, "d": 4},
+}
+
+
+def pdset(opt="default", value=-1):
+    """Quick pandas display option setter.
+    Presets:  pdset()  or  pdset('l')
+    Single:   pdset('mc', 50)  /  pdset('mr', 200)  /  pdset('d', 2)
+    Keys: mc=max_columns, mr=max_rows, cw=max_colwidth, w=width, d=decimal digits
+    """
     opt = opt.lower()
+    if value == -1 and opt in PDSET_PRESETS:
+        preset = PDSET_PRESETS[opt]
+        for key, val in preset.items():
+            if key == "d":
+                pd.set_option("display.float_format", f"{{:.{val}f}}".format)
+            else:
+                pd.set_option(PDSET_OPTIONS[key], val)
+        return
 
-    # default setting
-    if opt == 'default' and value == -1:
-        pd.set_option('display.max_column', 15)
-        pd.set_option('display.max_rows', 50)
-        pd.set_option('display.max_colwidth', 100)
-        pd.set_option('display.width', 300)
-        pd.set_option('display.float_format', lambda x: '%.4f' % x)
-    elif opt == 'l' and value == -1:
-        pd.set_option('display.max_column', 150)
-        pd.set_option('display.max_rows', 500)
-        pd.set_option('display.max_colwidth', 500)
-        pd.set_option('display.width', 1000)
-        pd.set_option('display.float_format', lambda x: '%.4f' % x)
-
-
+    if opt == "d":
+        pd.set_option("display.float_format", f"{{:.{value}f}}".format)
+    elif opt in PDSET_OPTIONS:
+        pd.set_option(PDSET_OPTIONS[opt], value)
     else:
-        if opt == 'mc':
-            pd.set_option('display.max_column', value)
-            print (f'pd.set_option(display.max_column, {value})')
-        elif opt == 'mr':
-            pd.set_option('display.max_rows', value)
-            print (f'pd.set_option(display.max_rows, {value})')
-        elif opt == 'cw':
-            pd.set_option('display.max_colwidth', value)
-            print (f'pd.set_option(display.max_colwidth, {value})')
-        elif opt == 'w':
-            pd.set_option('display.width', value)
-            print (f'pd.set_option(display.width, {value})')
-        elif opt == 'd':
-            pd.set_option('display.float_format', lambda x: f'%.{value}f' % x)
-            print (f'pd.set_option(display.float_format, lambda x: %.{value}f % x)')
-        else:
-            raise KeyError('No matching option, please check the option keywords')
+        raise KeyError(f"Unknown option {opt!r}. Valid: {', '.join(PDSET_OPTIONS)} / d / presets: {', '.join(PDSET_PRESETS)}")
+
+
 pdset()
 
-import inspect
 
-def _inspect_(func, limit = 1000):
-    '''
-    Inspect function or module
-    :param func: function want to inspect
-    :param limit: the number of character want to view
-    :return: None
-    '''
-    lines = inspect.getsource(func)
-    print(lines[0:limit] + '...')
+# ---------------------------------------------------------------------------
+# Code inspection
+# ---------------------------------------------------------------------------
+
+def source(func, limit=1000):
+    """Print the source code of a function or class (up to `limit` chars)."""
+    src = inspect.getsource(func)
+    print(src[:limit] + ("..." if len(src) > limit else ""))
 
 
-print('=' * 70)
-print('User: Jiayuan Chen (jiayuanchen@outlook.com)')
-print('=' * 70)
+# Backward compat alias
+_inspect_ = source
 
 
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
 
-#
+def plot(df, y, x, y2=None, plot_type="line", title=None, ascending=True, axis=True, show=True, **kwargs):
+    """Plot y over x using Plotly with optional secondary y-axis.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+    y : str — primary y-axis column
+    x : str — x-axis column
+    y2 : str | None — secondary y-axis column
+    plot_type : 'line' | 'scatter' | 'bar'
+    title : str | None
+    ascending : bool — sort by x
+    axis : bool — show zero lines
+    show : bool — if False, return the figure instead of displaying
+    """
+    import plotly.graph_objects as go
+
+    if plot_type in ("line", "bar"):
+        df = df.sort_values(by=x, ascending=ascending)
+
+    trace_map = {
+        "line": lambda y_col, name, yaxis: go.Scatter(x=df[x], y=df[y_col], name=name, mode="lines", yaxis=yaxis),
+        "scatter": lambda y_col, name, yaxis: go.Scatter(x=df[x], y=df[y_col], name=name, mode="markers", yaxis=yaxis),
+        "bar": lambda y_col, name, yaxis: go.Bar(x=df[x], y=df[y_col], name=name, yaxis=yaxis),
+    }
+    if plot_type not in trace_map:
+        raise ValueError(f"Unsupported plot_type {plot_type!r}. Choose from {list(trace_map)}")
+
+    make_trace = trace_map[plot_type]
+    fig = go.Figure()
+    fig.add_trace(make_trace(y, y, "y"))
+
+    if y2 is not None:
+        fig.add_trace(make_trace(y2, y2, "y2"))
+        fig.update_layout(yaxis2=dict(title=y2, overlaying="y", side="right", showgrid=False))
+
+    fig.update_layout(
+        title=title or f"{y} vs {x}" + (f" with {y2}" if y2 else ""),
+        xaxis_title=x,
+        yaxis_title=y,
+        legend=dict(x=0.01, y=0.99, borderwidth=1),
+        template="plotly_white",
+        hovermode="x unified",
+        margin=dict(l=80, r=80, t=60, b=60),
+    )
+    if axis:
+        fig.update_xaxes(zeroline=True, zerolinewidth=2, zerolinecolor="black")
+        fig.update_yaxes(zeroline=True, zerolinewidth=2, zerolinecolor="black")
+
+    if show:
+        fig.show()
+    else:
+        return fig
+
+
+# ---------------------------------------------------------------------------
+# Startup banner
+# ---------------------------------------------------------------------------
+print("=" * 70)
+print("User: Jiayuan Chen (jiayuanchen@outlook.com)")
+print("=" * 70)
